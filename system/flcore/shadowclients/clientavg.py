@@ -17,6 +17,7 @@ import queue
 
 socket.setdefaulttimeout(180)
 
+
 class Client(object):
     """
     Base class for clients in federated learning.
@@ -96,7 +97,7 @@ class Client(object):
             time.sleep(1)
         self.events.put('init')
         self.can_add = False
-    
+
     def synchronize(self):
         while(self.can_add == False):
             time.sleep(1)
@@ -104,39 +105,62 @@ class Client(object):
         self.can_add = False
         while(self.can_add == False):
             time.sleep(1)
-        param, train_time_cost,send_time_cost = self.returned_data
+        param = self.returned_data
         self.model.load_state_dict(param)
+
+    def synchronize1(self):
+        while(self.can_add == False):
+            time.sleep(1)
+        self.events.put('synchronize1')
+        self.can_add = False
+        while(self.can_add == False):
+            time.sleep(1)
+        train_time_cost = self.returned_data
         self.train_time_cost = train_time_cost
+
+    def synchronize2(self):
+        while(self.can_add == False):
+            time.sleep(1)
+        self.events.put('synchronize2')
+        self.can_add = False
+        while(self.can_add == False):
+            time.sleep(1)
+        send_time_cost = self.returned_data
         self.send_time_cost = send_time_cost
 
-        
     def main_loop(self, client, info):
         while True:
             try:
                 if self.events.empty():
+                    client.sendall(pkl.dumps(('stay', 'placeholder')))
+                    time.sleep(0.5)
                     continue
                 status = self.events.get()
                 print(f'Agent {self.id} {status}')
                 self.can_add = False
                 if status == 'init':
                     client.sendall(pkl.dumps(('init', [
-                                self.id, self.train_samples, self.test_samples]+[self.params])))
+                        self.id, self.train_samples, self.test_samples]+[self.params])))
                 elif status == 'train':
-                    client.sendall(pkl.dumps(('train','placeholder')))
+                    client.sendall(pkl.dumps(('train', 'placeholder')))
                 elif status == 'set_parameters':
                     client.sendall(
                         pkl.dumps(('set_parameters', self.model.state_dict())))
                 elif status == 'test_metrics':
-                    client.sendall(pkl.dumps(('test_metrics','placeholder')))
+                    client.sendall(pkl.dumps(('test_metrics', 'placeholder')))
                 elif status == 'train_metrics':
-                    client.sendall(pkl.dumps(('train_metrics','placeholder')))
+                    client.sendall(pkl.dumps(('train_metrics', 'placeholder')))
                 elif status == 'static':
-                    client.sendall(pkl.dumps(('static','placeholder')))
+                    client.sendall(pkl.dumps(('static', 'placeholder')))
                 elif status == 'synchronize':
-                    client.sendall(pkl.dumps(('synchronize','placeholder')))
-                
-                
-                received_message,data = pkl.loads(self.receive_long_data(client))
+                    client.sendall(pkl.dumps(('synchronize', 'placeholder')))
+                elif status == 'synchronize1':
+                    client.sendall(pkl.dumps(('synchronize1', 'placeholder')))
+                elif status == 'synchronize2':
+                    client.sendall(pkl.dumps(('synchronize2', 'placeholder')))
+
+                received_message, data = pkl.loads(
+                    self.receive_long_data(client))
                 self.returned_data = data
                 print(f'Agent {self.id} {received_message}')
                 self.can_add = True
@@ -183,8 +207,7 @@ class Client(object):
         while(self.can_add == False):
             time.sleep(1)
         test_acc, test_num, auc = self.returned_data
-        return test_acc,test_num,auc
-        
+        return test_acc, test_num, auc
 
     def train_metrics(self):
         while(self.can_add == False):
@@ -229,14 +252,15 @@ class Client(object):
     # @staticmethod
     # def model_exists():
     #     return os.path.exists(os.path.join("models", "server" + ".pt"))
-    
+
     def train(self):
         while(self.can_add == False):
             time.sleep(1)
         self.events.put('train')
         self.can_add = False
         self.synchronize()
-        
+        self.synchronize1()
+        self.synchronize2()
 
     def receive_long_data(self, client):
         '''
@@ -244,8 +268,8 @@ class Client(object):
         '''
         total_data = bytes()
         while True:
-            data = client.recv(1024)
+            data = client.recv(2048)
             total_data += data
-            if len(data) < 1024:
+            if len(data) < 2048:
                 break
         return total_data

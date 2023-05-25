@@ -12,6 +12,6 @@ if __name__ == '__main__':
     
     for thread in threads:
         thread.start()
-        time.sleep(30)
+        time.sleep(20)
 
 

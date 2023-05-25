@@ -1,3 +1,4 @@
+from utils.privacy import *
 import copy
 import torch
 import torch.nn as nn
@@ -12,16 +13,16 @@ import time
 import pickle as pkl
 import sys
 sys.path.append('../../')
-from utils.privacy import *
 
 socket.setdefaulttimeout(180)
+
 
 class Client(object):
     """
     Base class for clients in federated learning.
     """
 
-    def __init__(self, args, id,ip, port):
+    def __init__(self, args, id, ip, port):
         # socket based
         self.id = id
         self.address = (ip, port+id)
@@ -36,8 +37,10 @@ class Client(object):
             # try:
             received_data = pkl.loads(self.receive_long_data())
             order, data = received_data
-            print(f'Agent{self.id} {order}')
-            if order == 'init': # initialize work
+            if order == 'stay':
+                continue
+            print(f'Agent {self.id} {order}')
+            if order == 'init':  # initialize work
                 id, train_samples, test_samples, param = data
                 self.model = copy.deepcopy(self.args.model)
                 self.algorithm = self.args.algorithm
@@ -77,44 +80,59 @@ class Client(object):
                 )
                 self.learning_rate_decay = self.args.learning_rate_decay
                 # send feedback message
-                self.client.sendall(pkl.dumps(('finish init','placeholder')))
-                print(f'Agent{self.id} initialize done')
-                                    
+                self.client.sendall(pkl.dumps(('finish init', 'placeholder')))
+                print(f'Agent {self.id} initialize done')
+
             elif order == 'train':
                 self.train()
 
                 # send feedback message
-                self.client.sendall(pkl.dumps(('finish train','placeholder')))
-                print(f'Agent{self.id} train done')
+                self.client.sendall(pkl.dumps(('finish train', 'placeholder')))
+                print(f'Agent {self.id} train done')
             elif order == 'set_parameters':
                 self.model.load_state_dict(data)
 
                 # send feedback message
-                self.client.sendall(pkl.dumps(('finish set_parameters','placeholder')))
-                print(f'Agent{self.id} set parameters done')
-            
+                self.client.sendall(
+                    pkl.dumps(('finish set_parameters', 'placeholder')))
+                print(f'Agent {self.id} set parameters done')
+
             elif order == 'test_metrics':
                 test_acc, test_num, auc = self.test_metrics()
 
                 # send feedback message
-                self.client.sendall(pkl.dumps(('finish test_metrics',[test_acc,test_num,auc])))
-                print(f'Agent{self.id} test metrics done')
+                self.client.sendall(
+                    pkl.dumps(('finish test_metrics', [test_acc, test_num, auc])))
+                print(f'Agent {self.id} test metrics done')
             elif order == 'train_metrics':
                 losses, train_num = self.train_metrics()
 
                 # send feedback message
-                self.client.sendall(pkl.dumps(('finish train_metrics',[losses, train_num])))
-                print(f'Agent{self.id} train metrics done')
+                self.client.sendall(
+                    pkl.dumps(('finish train_metrics', [losses, train_num])))
+                print(f'Agent {self.id} train metrics done')
             elif order == 'synchronize':
-                time.sleep(1) # 艹，sb，这个地方必须放一个空语句，吗的智障！！
+                time.sleep(2)  # 艹，sb，这个地方必须放一个空语句，吗的智障！！
                 # send feedback message
-                self.client.sendall(pkl.dumps(('finish synchronize',[self.model.state_dict(),self.train_time_cost,self.send_time_cost])))
-                print(f'Agent{self.id} synchronize done')
-            
+                self.client.sendall(
+                    pkl.dumps(('finish synchronize', self.model.state_dict())))
+                print(f'Agent {self.id} synchronize done')
+            elif order == 'synchronize1':
+                time.sleep(2)  # 艹，sb，这个地方必须放一个空语句，吗的智障！！
+                # send feedback message
+                self.client.sendall(
+                    pkl.dumps(('finish synchronize1', self.train_time_cost)))
+                print(f'Agent {self.id} synchronize1 done')
+            elif order == 'synchronize2':
+                time.sleep(2)  # 艹，sb，这个地方必须放一个空语句，吗的智障！！
+                # send feedback message
+                self.client.sendall(
+                    pkl.dumps(('finish synchronize2', self.send_time_cost)))
+                print(f'Agent {self.id} synchronize2 done')
+
             # except:
             #     print('exception')
             #     break
-
 
     def load_train_data(self, batch_size=None):
         if batch_size == None:
@@ -127,7 +145,7 @@ class Client(object):
             batch_size = self.batch_size
         test_data = read_client_data(self.dataset, self.id, is_train=False)
         return DataLoader(test_data, batch_size, drop_last=False, shuffle=False)
-        
+
     def set_parameters(self, model):
         for new_param, old_param in zip(model.parameters(), self.model.parameters()):
             old_param.data = new_param.data.clone()
@@ -151,7 +169,7 @@ class Client(object):
         test_num = 0
         y_prob = []
         y_true = []
-        
+
         with torch.no_grad():
             for x, y in testloaderfull:
                 if type(x) == type([]):
@@ -168,7 +186,8 @@ class Client(object):
                 nc = self.num_classes
                 if self.num_classes == 2:
                     nc += 1
-                lb = label_binarize(y.detach().cpu().numpy(), classes=np.arange(nc))
+                lb = label_binarize(y.detach().cpu().numpy(),
+                                    classes=np.arange(nc))
                 if self.num_classes == 2:
                     lb = lb[:, :2]
                 y_true.append(lb)
@@ -180,7 +199,7 @@ class Client(object):
         y_true = np.concatenate(y_true, axis=0)
 
         auc = metrics.roc_auc_score(y_true, y_prob, average='micro')
-        
+
         return test_acc, test_num, auc
 
     def train_metrics(self):
@@ -224,13 +243,13 @@ class Client(object):
 
     #     return x, y
 
-
     def save_item(self, item, item_name, item_path=None):
         if item_path == None:
             item_path = self.save_folder_name
         if not os.path.exists(item_path):
             os.makedirs(item_path)
-        torch.save(item, os.path.join(item_path, "client_" + str(self.id) + "_" + item_name + ".pt"))
+        torch.save(item, os.path.join(item_path, "client_" +
+                   str(self.id) + "_" + item_name + ".pt"))
 
     def load_item(self, item_name, item_path=None):
         if item_path == None:
@@ -248,12 +267,12 @@ class Client(object):
         '''
         total_data = bytes()
         while True:
-            data = self.client.recv(1024)
+            data = self.client.recv(2048)
             total_data += data
-            if len(data) < 1024:
+            if len(data) < 2048:
                 break
         return total_data
-    
+
     def train(self):
         trainloader = self.load_train_data()
         # self.model.to(self.device)
@@ -262,8 +281,9 @@ class Client(object):
         # differential privacy
         if self.privacy:
             self.model, self.optimizer, trainloader, privacy_engine = \
-                initialize_dp(self.model, self.optimizer, trainloader, self.dp_sigma)
-        
+                initialize_dp(self.model, self.optimizer,
+                              trainloader, self.dp_sigma)
+
         start_time = time.time()
 
         max_local_steps = self.local_epochs
