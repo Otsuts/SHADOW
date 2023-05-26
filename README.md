@@ -1,4 +1,4 @@
-###### SHADOW: **S**ynchronize **H**eterogeneous **A**nd **D**istributed Client in Federated Learning Tasks
+## SHADOW: **S**ynchronize **H**eterogeneous **A**nd **D**istributed Client in Federated Learning Tasks
 
 联邦学习算法的分布式实现，原算法模拟的仓库基于：https://github.com/TsingZ0/PFL-Non-IID
 
