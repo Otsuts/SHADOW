@@ -2,12 +2,7 @@ import copy
 import sys
 import torch
 import torch.nn as nn
-import numpy as np
-import os
-import torch.nn.functional as F
 from torch.utils.data import DataLoader
-from sklearn.preprocessing import label_binarize
-from sklearn import metrics
 from utils.data_utils import read_client_data
 import socket
 import pickle as pkl
@@ -20,7 +15,7 @@ socket.setdefaulttimeout(180)
 
 class Client(object):
     """
-    Base class for clients in federated learning.
+    Shadow client for fedavg algorithm.
     """
 
     def __init__(self, args, id, train_samples, test_samples, **kwargs):
@@ -31,9 +26,8 @@ class Client(object):
         self.socket_server = socket.socket()
         self.socket_server.bind(self.address)
         self.socket_server.listen(5)
-        self.events = queue.Queue(1)
-        self.end = False
-        self.can_add = True
+        self.events = queue.Queue(1) # event queue
+        self.can_add = True # semaphore for connecting with real client
 
         self.model = copy.deepcopy(args.model)
         self.algorithm = args.algorithm
@@ -78,14 +72,14 @@ class Client(object):
 
     def create_client(self):
         while True:
-            # 等待客户端连接
+            # wating for clients to connect
             print(f'waiting for connection from {self.address}')
             client, info = self.socket_server.accept()
             print(f'socket established {info}')
             time.sleep(0.5)
-            # 给每个客户端创建一个独立的线程进行管理
+            # create isolate thread for a new comer client
             thread = Thread(target=self.main_loop, args=(client, info))
-            # 设置成守护线程，在主进程退出时可以直接退出
+            # set to daemon thread to quit when main thread finishes
             thread.setDaemon(True)
             thread.start()
             if client:
@@ -93,7 +87,7 @@ class Client(object):
         self.init()
 
     def init(self):
-        while(self.can_add == False):
+        while(self.can_add == False): # busy waiting when previous function is connecting with client
             time.sleep(1)
         self.events.put('init')
         self.can_add = False
@@ -103,7 +97,7 @@ class Client(object):
             time.sleep(1)
         self.events.put('synchronize')
         self.can_add = False
-        while(self.can_add == False):
+        while(self.can_add == False): # busy waiting util returned value is set 
             time.sleep(1)
         param = self.returned_data
         self.model.load_state_dict(param)
@@ -132,7 +126,7 @@ class Client(object):
         while True:
             try:
                 if self.events.empty():
-                    client.sendall(pkl.dumps(('stay', 'placeholder')))
+                    client.sendall(pkl.dumps(('stay', 'placeholder'))) # stay connected
                     time.sleep(0.5)
                     continue
                 status = self.events.get()
@@ -182,7 +176,6 @@ class Client(object):
     def set_parameters(self, model):
         while(self.can_add == False):
             pass
-
         self.events.put('set_parameters')
         self.can_add = False
         for new_param, old_param in zip(model.parameters(), self.model.parameters()):
